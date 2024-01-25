@@ -3,7 +3,7 @@
  *
  * Adyen Payment module (https://www.adyen.com/)
  *
- * Copyright (c) 2015 Adyen BV (https://www.adyen.com/)
+ * Copyright (c) 2023 Adyen N.V. (https://www.adyen.com/)
  * See LICENSE.txt for license details.
  *
  * Author: Adyen <magento@adyen.com>
@@ -15,31 +15,14 @@ use Adyen\AdyenException;
 use Adyen\Client;
 use Adyen\Payment\Helper\Data;
 use Adyen\Payment\Helper\Idempotency;
-use Adyen\Service\Checkout\ModificationsApi;
-use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Payment\Gateway\Http\ClientInterface;
 use Magento\Payment\Gateway\Http\TransferInterface;
 
-/**
- * Class TransactionSale
- */
 class TransactionCancel implements ClientInterface
 {
-    /**
-     * @var Data
-     */
-    private $adyenHelper;
+    private Data $adyenHelper;
+    private Idempotency $idempotencyHelper;
 
-    /**
-     * @var Idempotency
-     */
-    private $idempotencyHelper;
-
-    /**
-     * PaymentRequest constructor.
-     * @param Data $adyenHelper
-     * @param Idempotency $idempotencyHelper
-     */
     public function __construct(
         Data        $adyenHelper,
         Idempotency $idempotencyHelper
@@ -48,33 +31,22 @@ class TransactionCancel implements ClientInterface
         $this->idempotencyHelper = $idempotencyHelper;
     }
 
-    /**
-     * @param TransferInterface $transferObject
-     * @return array
-     * @throws AdyenException
-     * @throws NoSuchEntityException
-     */
     public function placeRequest(TransferInterface $transferObject): array
     {
         $request = $transferObject->getBody();
         $headers = $transferObject->getHeaders();
-
-        $client = $this->adyenHelper->initializeAdyenClient();
+        $clientConfig = $transferObject->getClientConfig();
+        $client = $this->adyenHelper->initializeAdyenClientWithClientConfig($clientConfig);
         $service = $this->adyenHelper->createAdyenCheckoutService($client);
-
-
         $response = [];
 
-
         foreach ($request as $requests) {
-
             $idempotencyKey = $this->idempotencyHelper->generateIdempotencyKey(
                 $requests,
                 $headers['idempotencyExtraData'] ?? null
             );
-
             $requestOptions['idempotencyKey'] = $idempotencyKey;
-
+            $requestOptions['headers'] = $this->adyenHelper->buildRequestHeaders();
             $this->adyenHelper->logRequest($requests, Client::API_CHECKOUT_VERSION, '/cancels');
             try {
                 $responses = $service->cancels($requests, $requestOptions);

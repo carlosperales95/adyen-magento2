@@ -17,6 +17,7 @@ use Adyen\Payment\Helper\Config as ConfigHelper;
 use Adyen\Payment\Helper\Order as OrderHelper;
 use Adyen\Payment\Helper\Webhook\WebhookHandlerFactory;
 use Adyen\Payment\Logger\AdyenLogger;
+use Adyen\Payment\Model\Config\Source\PreAuthorized;
 use Adyen\Payment\Model\Notification;
 use Adyen\Webhook\Exception\InvalidDataException;
 use Adyen\Webhook\Notification as WebhookNotification;
@@ -45,7 +46,7 @@ class Webhook
      * Indicative matrix for possible states to enter after given event
      */
     const STATE_TRANSITION_MATRIX = [
-        'payment_pre_authorized' => [Order::STATE_NEW, Order::STATE_PENDING_PAYMENT],
+        'payment_pre_authorized' => [Order::STATE_NEW, PreAuthorized::STATE_ADYEN_AUTHORIZED],
         'payment_authorized' => [Order::STATE_PROCESSING]
     ];
 
@@ -295,7 +296,7 @@ class Webhook
             $additionalData2 = $additionalData['additionalData'] ?? null;
             if ($additionalData2 && is_array($additionalData2)) {
                 $this->klarnaReservationNumber = isset($additionalData2['acquirerReference']) ? trim(
-                    $additionalData2['acquirerReference']
+                    (string) $additionalData2['acquirerReference']
                 ) : "";
             }
             $ratepayDescriptor = $additionalData['openinvoicedata.descriptor'] ?? "";
@@ -498,7 +499,7 @@ class Webhook
         $result = "";
 
         if ($reason != "") {
-            $reasonArray = explode(":", $reason);
+            $reasonArray = explode(":", (string) $reason);
             if ($reasonArray != null && is_array($reasonArray) && isset($reasonArray[1])) {
                 $result = $reasonArray[1];
             }

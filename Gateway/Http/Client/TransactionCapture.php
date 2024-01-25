@@ -3,7 +3,7 @@
  *
  * Adyen Payment module (https://www.adyen.com/)
  *
- * Copyright (c) 2021 Adyen BV (https://www.adyen.com/)
+ * Copyright (c) 2023 Adyen N.V. (https://www.adyen.com/)
  * See LICENSE.txt for license details.
  *
  * Author: Adyen <magento@adyen.com>
@@ -18,14 +18,9 @@ use Adyen\Payment\Helper\Data;
 use Adyen\Payment\Helper\Idempotency;
 use Adyen\Payment\Helper\Requests;
 use Adyen\Payment\Logger\AdyenLogger;
-use Adyen\Service\Checkout\ModificationsApi;
-use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Payment\Gateway\Http\ClientInterface;
 use Magento\Payment\Gateway\Http\TransferInterface;
 
-/**
- * Class TransactionSale
- */
 class TransactionCapture implements ClientInterface
 {
     const MULTIPLE_AUTHORIZATIONS = 'multiple_authorizations';
@@ -34,27 +29,10 @@ class TransactionCapture implements ClientInterface
     const ORIGINAL_REFERENCE = 'paymentPspReference';
     const CAPTURE_RECEIVED = 'received';
 
-    /**
-     * @var Data
-     */
-    private $adyenHelper;
+    private Data $adyenHelper;
+    private AdyenLogger $adyenLogger;
+    private Idempotency $idempotencyHelper;
 
-    /**
-     * @var AdyenLogger
-     */
-    private $adyenLogger;
-
-    /**
-     * @var Idempotency
-     */
-    private $idempotencyHelper;
-
-    /**
-     * PaymentRequest constructor.
-     * @param Data $adyenHelper
-     * @param AdyenLogger $adyenLogger
-     * @param Idempotency $idempotencyHelper
-     */
     public function __construct(
         Data $adyenHelper,
         AdyenLogger $adyenLogger,
@@ -65,27 +43,21 @@ class TransactionCapture implements ClientInterface
         $this->idempotencyHelper = $idempotencyHelper;
     }
 
-    /**
-     * @param TransferInterface $transferObject
-     * @return array
-     * @throws AdyenException
-     * @throws NoSuchEntityException
-     */
     public function placeRequest(TransferInterface $transferObject): array
     {
         $request = $transferObject->getBody();
         $headers = $transferObject->getHeaders();
-
-        $client = $this->adyenHelper->initializeAdyenClient();
+        $clientConfig = $transferObject->getClientConfig();
+        $client = $this->adyenHelper->initializeAdyenClientWithClientConfig($clientConfig);
         $service = $this->adyenHelper->createAdyenCheckoutService($client);
-
 
         $idempotencyKey = $this->idempotencyHelper->generateIdempotencyKey(
             $request,
-                $headers['idempotencyExtraData'] ?? null
+            $headers['idempotencyExtraData'] ?? null
         );
 
         $requestOptions['idempotencyKey'] = $idempotencyKey;
+        $requestOptions['headers'] = $this->adyenHelper->buildRequestHeaders();
 
         if (array_key_exists(self::MULTIPLE_AUTHORIZATIONS, $request)) {
             return $this->placeMultipleCaptureRequests($service, $request, $requestOptions);
@@ -104,11 +76,6 @@ class TransactionCapture implements ClientInterface
         return $response;
     }
 
-    /**
-     * @param $service
-     * @param $requestContainer
-     * @return array
-     */
     private function placeMultipleCaptureRequests($service, $requestContainer, $requestOptions): array
     {
         $response = [];
@@ -125,10 +92,14 @@ class TransactionCapture implements ClientInterface
                 $singleResponse = $this->copyParamsToResponse($singleResponse, $request);
                 $response[self::MULTIPLE_AUTHORIZATIONS][] = $singleResponse;
             } catch (AdyenException $e) {
+                $pspReference = isset($request[OrderPaymentInterface::PSPREFRENCE]) ?
+                    $request[OrderPaymentInterface::PSPREFRENCE] :
+                    'pspReference not set';
+
                 $message = sprintf(
                     'Exception occurred when attempting to capture multiple authorizations.
                     Authorization with pspReference %s: %s',
-                    $request[OrderPaymentInterface::PSPREFRENCE],
+                    $pspReference,
                     $e->getMessage()
                 );
 
@@ -140,13 +111,6 @@ class TransactionCapture implements ClientInterface
         return $response;
     }
 
-    /**
-     * Copy data from the request to the response. This data will be used later when handling the response
-     *
-     * @param array $response
-     * @param array $request
-     * @return array
-     */
     private function copyParamsToResponse(array $response, array $request): array
     {
         $response[self::CAPTURE_AMOUNT] = $request['amount']['value'];
